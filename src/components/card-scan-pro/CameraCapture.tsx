@@ -39,6 +39,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     
     if (videoRef.current) {
       videoRef.current.srcObject = null;
+      videoRef.current.pause();
     }
     
     setIsCameraActive(false);
@@ -104,66 +105,61 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       if (videoRef.current) {
         const video = videoRef.current;
         
-        // Set video properties
+        // Clear any existing source
+        video.srcObject = null;
+        
+        // Wait a bit for cleanup
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Set up video with stream
         video.srcObject = mediaStream;
         video.autoplay = true;
         video.playsInline = true;
         video.muted = true;
         
-        // Handle video events
-        const handleLoadedMetadata = () => {
-          console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
-            setVideoReady(true);
-            setIsLoading(false);
-          }
-        };
-
-        const handleCanPlay = () => {
-          console.log('Video can play');
-          video.play().then(() => {
-            console.log('Video playing successfully');
-            setVideoReady(true);
-            setIsLoading(false);
-          }).catch(err => {
-            console.warn('Video play failed:', err);
-          });
-        };
-
-        const handlePlaying = () => {
-          console.log('Video is playing');
+        // Create a promise to handle video loading
+        const videoLoadPromise = new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Video loading timeout'));
+          }, 10000); // 10 second timeout
+          
+          const handleLoadedData = () => {
+            console.log('Video data loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
+            if (video.videoWidth > 0 && video.videoHeight > 0) {
+              clearTimeout(timeout);
+              video.removeEventListener('loadeddata', handleLoadedData);
+              video.removeEventListener('error', handleError);
+              resolve();
+            }
+          };
+          
+          const handleError = (e: Event) => {
+            console.error('Video loading error:', e);
+            clearTimeout(timeout);
+            video.removeEventListener('loadeddata', handleLoadedData);
+            video.removeEventListener('error', handleError);
+            reject(new Error('Video loading failed'));
+          };
+          
+          video.addEventListener('loadeddata', handleLoadedData);
+          video.addEventListener('error', handleError);
+        });
+        
+        try {
+          // Wait for video to load
+          await videoLoadPromise;
+          
+          // Try to play the video
+          await video.play();
+          
+          console.log('Video playing successfully');
           setVideoReady(true);
           setIsLoading(false);
-        };
-
-        const handleError = (e: Event) => {
-          console.error('Video error occurred:', e);
-          setCameraError('Failed to display camera feed');
-          setIsLoading(false);
-        };
-
-        const handleLoadStart = () => {
-          console.log('Video load started');
-        };
-
-        // Add event listeners
-        video.addEventListener('loadedmetadata', handleLoadedMetadata);
-        video.addEventListener('canplay', handleCanPlay);
-        video.addEventListener('playing', handlePlaying);
-        video.addEventListener('error', handleError);
-        video.addEventListener('loadstart', handleLoadStart);
-
-        // Force load if needed
-        video.load();
-
-        // Cleanup function for event listeners
-        return () => {
-          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          video.removeEventListener('canplay', handleCanPlay);
-          video.removeEventListener('playing', handlePlaying);
-          video.removeEventListener('error', handleError);
-          video.removeEventListener('loadstart', handleLoadStart);
-        };
+          
+        } catch (playError) {
+          console.error('Video play error:', playError);
+          throw new Error('Failed to start video playback');
+        }
       }
       
     } catch (err) {
@@ -413,7 +409,9 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
             <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
               <div className="text-white text-center space-y-3">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
-                <p className="text-sm">Loading camera feed...</p>
+                <p className="text-sm">
+                  {isLoading ? 'Starting camera...' : 'Loading camera feed...'}
+                </p>
               </div>
             </div>
           )}
