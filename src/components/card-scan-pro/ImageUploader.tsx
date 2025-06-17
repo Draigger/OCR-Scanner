@@ -150,7 +150,7 @@ export function ImageUploader({ onImageSelect, currentImagePreview }: ImageUploa
         <div className="aspect-video flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/25 rounded-xl bg-muted/20 text-muted-foreground">
           <div className="text-center space-y-3">
             <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto">
-              <ImageIcon className="h-6 w-6" />
+              <FileImage className="h-6 w-6" />
             </div>
             <p className="text-sm">Image preview will appear here</p>
           </div>
