@@ -184,11 +184,6 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       video.addEventListener('error', handleError);
       video.addEventListener('loadstart', handleLoadStart);
       
-      // Force play the video
-      video.play().catch(err => {
-        console.error('Initial play failed:', err);
-      });
-      
       return () => {
         // Cleanup function: properly clean up video source and event listeners
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
