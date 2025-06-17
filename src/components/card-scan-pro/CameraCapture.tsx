@@ -18,27 +18,51 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const [capturedImage, setCapturedImage] = useState<string | null>(currentImagePreview);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
 
-  const requestCameraPermissionAndStart = useCallback(async () => {
+  // Clean up function
+  const cleanupCamera = useCallback(() => {
+    console.log('Cleaning up camera...');
+    
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        console.log('Stopping track:', track.kind, track.label);
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.load(); // Reset video element
+    }
+    
+    setStream(null);
+    setIsCameraActive(false);
+    setVideoReady(false);
+    setCameraError(null);
+  }, []);
+
+  // Start camera function
+  const startCamera = useCallback(async () => {
+    console.log('Starting camera...');
     setIsLoading(true);
-    setIsStartingCamera(true);
     setCameraError(null);
     setVideoReady(false);
     
-    // Check if getUserMedia is supported
+    // Check browser support
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      const errorMsg = "Camera access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.";
+      const errorMsg = "Camera access is not supported in this browser.";
       setCameraError(errorMsg);
       setHasCameraPermission(false);
       setIsLoading(false);
-      setIsStartingCamera(false);
       toast({
         title: "Camera Not Supported",
         description: errorMsg,
@@ -47,38 +71,90 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       return;
     }
 
-    // Clear any existing captured image
-    setCapturedImage(null);
-    onImageCapture(null);
-
     try {
-      // Start with basic constraints for better compatibility
-      const constraints = {
-        video: {
-          width: { ideal: 1280, min: 640, max: 1920 },
-          height: { ideal: 720, min: 480, max: 1080 },
-          facingMode: 'environment' // Prefer back camera
-        },
-        audio: false
-      };
+      // Clear any existing captured image
+      setCapturedImage(null);
+      onImageCapture(null);
 
-      console.log('Requesting camera access with constraints:', constraints);
-      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Request camera access with fallback constraints
+      let mediaStream: MediaStream;
       
-      console.log('Camera access granted, stream tracks:', mediaStream.getTracks().length);
-      
-      // Check if stream has video tracks
-      const videoTracks = mediaStream.getVideoTracks();
-      if (videoTracks.length === 0) {
-        throw new Error('No video tracks found in stream');
+      try {
+        // Try with ideal constraints first
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+            facingMode: 'environment'
+          },
+          audio: false
+        });
+      } catch (err) {
+        console.log('Ideal constraints failed, trying basic constraints...');
+        // Fallback to basic constraints
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
       }
+
+      console.log('Camera access granted');
       
-      console.log('Video track settings:', videoTracks[0].getSettings());
-      
+      // Store stream reference
+      streamRef.current = mediaStream;
       setStream(mediaStream);
       setHasCameraPermission(true);
       setIsCameraActive(true);
-      setCameraError(null);
+      
+      // Set up video element
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        
+        // Wait for video to be ready
+        const video = videoRef.current;
+        
+        const handleLoadedMetadata = () => {
+          console.log('Video metadata loaded');
+          setVideoReady(true);
+        };
+
+        const handleCanPlay = () => {
+          console.log('Video can play');
+          video.play().catch(err => {
+            console.warn('Video play failed:', err);
+          });
+        };
+
+        const handlePlaying = () => {
+          console.log('Video is playing');
+          setVideoReady(true);
+        };
+
+        const handleError = () => {
+          console.error('Video error occurred');
+          setCameraError('Failed to display camera feed');
+        };
+
+        // Add event listeners
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
+        video.addEventListener('canplay', handleCanPlay);
+        video.addEventListener('playing', handlePlaying);
+        video.addEventListener('error', handleError);
+
+        // Cleanup function for event listeners
+        const cleanup = () => {
+          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          video.removeEventListener('canplay', handleCanPlay);
+          video.removeEventListener('playing', handlePlaying);
+          video.removeEventListener('error', handleError);
+        };
+
+        // Store cleanup function
+        video.dataset.cleanup = 'true';
+        
+        // Auto-cleanup on component unmount
+        return cleanup;
+      }
       
     } catch (err) {
       console.error("Camera access error:", err);
@@ -88,46 +164,26 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         switch (err.name) {
           case "NotFoundError":
           case "DevicesNotFoundError":
-            errorMessage += "No camera device found. Please ensure a camera is connected.";
+            errorMessage += "No camera device found.";
             break;
           case "NotAllowedError":
           case "PermissionDeniedError":
-            errorMessage += "Camera permission denied. Please allow camera access and try again.";
+            errorMessage += "Camera permission denied.";
             break;
           case "NotReadableError":
-            errorMessage += "Camera is already in use by another application.";
+            errorMessage += "Camera is already in use.";
             break;
           case "OverconstrainedError":
-            errorMessage += "Camera constraints not supported. Trying with basic settings...";
-            // Try again with very basic constraints
-            try {
-              const basicStream = await navigator.mediaDevices.getUserMedia({ 
-                video: true, 
-                audio: false 
-              });
-              setStream(basicStream);
-              setHasCameraPermission(true);
-              setIsCameraActive(true);
-              setCameraError(null);
-              setIsLoading(false);
-              setIsStartingCamera(false);
-              return;
-            } catch (basicErr) {
-              errorMessage += " Basic camera access also failed.";
-            }
-            break;
-          case "SecurityError":
-            errorMessage += "Camera access blocked due to security restrictions.";
+            errorMessage += "Camera constraints not supported.";
             break;
           default:
-            errorMessage += `Error: ${err.message}`;
+            errorMessage += err.message;
         }
       }
       
       setCameraError(errorMessage);
       setHasCameraPermission(false);
-      setIsCameraActive(false);
-      setStream(null);
+      cleanupCamera();
       
       toast({
         title: "Camera Error",
@@ -136,90 +192,12 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       });
     } finally {
       setIsLoading(false);
-      setIsStartingCamera(false);
     }
-  }, [onImageCapture, toast]);
+  }, [onImageCapture, toast, cleanupCamera]);
 
-  // Handle video element setup
-  useEffect(() => {
-    if (isCameraActive && stream && videoRef.current) {
-      const video = videoRef.current;
-      console.log('Setting up video element...');
-      
-      // Set the stream
-      video.srcObject = stream;
-      
-      const handleLoadedMetadata = () => {
-        console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
-        setVideoReady(true);
-      };
-      
-      const handleCanPlay = () => {
-        console.log('Video can play');
-        // Ensure video is playing
-        video.play().catch(err => {
-          console.error('Error playing video:', err);
-        });
-      };
-      
-      const handlePlaying = () => {
-        console.log('Video is playing');
-        setVideoReady(true);
-      };
-      
-      const handleError = (e: Event) => {
-        console.error('Video error:', e);
-        setCameraError('Failed to display camera feed');
-        setVideoReady(false);
-      };
-      
-      const handleLoadStart = () => {
-        console.log('Video load started');
-      };
-      
-      // Add all event listeners
-      video.addEventListener('loadedmetadata', handleLoadedMetadata);
-      video.addEventListener('canplay', handleCanPlay);
-      video.addEventListener('playing', handlePlaying);
-      video.addEventListener('error', handleError);
-      video.addEventListener('loadstart', handleLoadStart);
-      
-      return () => {
-        // Cleanup function: properly clean up video source and event listeners
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-        video.removeEventListener('canplay', handleCanPlay);
-        video.removeEventListener('playing', handlePlaying);
-        video.removeEventListener('error', handleError);
-        video.removeEventListener('loadstart', handleLoadStart);
-        
-        // Properly clean up video source to prevent play() interruption
-        if (video.srcObject) {
-          video.srcObject = null;
-        }
-      };
-    }
-  }, [isCameraActive, stream]);
-
-  const stopCamera = useCallback(() => {
-    console.log('Stopping camera...');
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        track.stop();
-        console.log('Stopped track:', track.kind, track.label);
-      });
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setStream(null);
-    setIsCameraActive(false);
-    setIsStartingCamera(false);
-    setVideoReady(false);
-    setCameraError(null);
-  }, [stream]);
-
+  // Capture image function
   const captureImage = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !stream || !isCameraActive || !videoReady) {
+    if (!videoRef.current || !canvasRef.current || !videoReady) {
       toast({
         title: "Capture Error",
         description: "Camera not ready. Please wait for the video feed to load.",
@@ -231,27 +209,17 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Double-check video is ready
-    if (video.readyState < 2) {
-      toast({
-        title: "Capture Error",
-        description: "Camera is still loading. Please wait a moment and try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
     if (video.videoWidth === 0 || video.videoHeight === 0) {
       toast({
         title: "Capture Error",
-        description: "Video stream not ready. Please try again in a moment.",
+        description: "Video stream not ready. Please try again.",
         variant: "destructive",
       });
       return;
     }
     
     try {
-      // Set canvas dimensions to match video
+      // Set canvas dimensions
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       
@@ -260,16 +228,16 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         throw new Error('Could not get canvas context');
       }
       
-      // Draw the video frame to canvas
+      // Draw video frame to canvas
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Convert to base64 with high quality
+      // Convert to base64
       const base64Image = canvas.toDataURL('image/jpeg', 0.95);
       
-      console.log('Image captured successfully, size:', base64Image.length);
+      console.log('Image captured successfully');
       setCapturedImage(base64Image);
       onImageCapture(base64Image);
-      stopCamera();
+      cleanupCamera();
       
       toast({
         title: "Image Captured",
@@ -285,46 +253,49 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         variant: "destructive",
       });
     }
-  }, [isCameraActive, stream, videoReady, onImageCapture, stopCamera, toast]);
+  }, [videoReady, onImageCapture, cleanupCamera, toast]);
 
-  const retakeImage = () => {
+  // Retake image function
+  const retakeImage = useCallback(() => {
     setCapturedImage(null);
     onImageCapture(null);
-    requestCameraPermissionAndStart();
-  };
+    startCamera();
+  }, [onImageCapture, startCamera]);
 
-  const clearImage = () => {
+  // Clear image function
+  const clearImage = useCallback(() => {
     setCapturedImage(null);
     onImageCapture(null);
     if (isCameraActive) {
-      stopCamera();
+      cleanupCamera();
     }
-  };
-  
+  }, [isCameraActive, onImageCapture, cleanupCamera]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopCamera();
+      cleanupCamera();
     };
-  }, [stopCamera]);
+  }, [cleanupCamera]);
 
-  // Sync with external image changes - prevent stopping camera during initialization
+  // Sync with external image changes
   useEffect(() => {
     if (currentImagePreview === null && capturedImage !== null) {
       setCapturedImage(null);
-      if (isCameraActive && !isStartingCamera) stopCamera();
     } else if (currentImagePreview !== null && currentImagePreview !== capturedImage) {
       setCapturedImage(currentImagePreview);
-      if (isCameraActive && !isStartingCamera) stopCamera(); 
+      if (isCameraActive) {
+        cleanupCamera();
+      }
     }
-  }, [currentImagePreview, capturedImage, isCameraActive, isStartingCamera, stopCamera]); 
+  }, [currentImagePreview, capturedImage, isCameraActive, cleanupCamera]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-3">
         {!isCameraActive && !capturedImage && !isLoading && (
           <Button 
-            onClick={requestCameraPermissionAndStart} 
+            onClick={startCamera} 
             variant="outline" 
             className="flex-1 h-12 hover-lift border-primary/20 hover:border-primary hover:bg-primary/5"
             disabled={isLoading}
@@ -360,7 +331,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
               {videoReady ? 'Capture' : 'Loading...'}
             </Button>
             <Button 
-              onClick={stopCamera} 
+              onClick={cleanupCamera} 
               variant="outline" 
               className="h-12 hover-lift border-destructive/20 hover:border-destructive hover:bg-destructive/5"
             >
@@ -423,14 +394,14 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
             muted
             className="w-full aspect-video rounded-xl border-2 border-primary/20 bg-black shadow-lg"
             style={{ 
-              display: isCameraActive ? 'block' : 'none',
+              display: 'block',
               objectFit: 'cover'
             }}
             aria-label="Camera feed"
           />
           
           {/* Loading overlay */}
-          {!videoReady && isCameraActive && (
+          {!videoReady && (
             <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
               <div className="text-white text-center space-y-3">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
@@ -440,7 +411,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
           )}
           
           {/* Capture guide overlay */}
-          {videoReady && isCameraActive && (
+          {videoReady && (
             <div className="absolute inset-4 border-2 border-white/50 rounded-lg pointer-events-none">
               <div className="absolute -top-6 left-0 text-white text-sm bg-black/50 px-2 py-1 rounded">
                 Position ID card within this frame
