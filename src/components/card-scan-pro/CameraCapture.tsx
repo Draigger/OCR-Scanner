@@ -4,7 +4,7 @@ import type React from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
-import { Camera, Video, VideoOff, X, RotateCcw, Zap } from 'lucide-react';
+import { Camera, Video, VideoOff, X, RotateCcw, Zap, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -17,19 +17,28 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(currentImagePreview);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
 
   const requestCameraPermissionAndStart = useCallback(async () => {
-    if (typeof navigator.mediaDevices === 'undefined' || !navigator.mediaDevices.getUserMedia) {
+    setIsLoading(true);
+    setCameraError(null);
+    
+    // Check if getUserMedia is supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      const errorMsg = "Camera access is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Safari.";
+      setCameraError(errorMsg);
+      setHasCameraPermission(false);
+      setIsLoading(false);
       toast({
         title: "Camera Not Supported",
-        description: "Your browser does not support camera access.",
+        description: errorMsg,
         variant: "destructive",
       });
-      setHasCameraPermission(false);
       return;
     }
 
@@ -37,88 +46,208 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     onImageCapture(null);
 
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      // Try different camera constraints for better compatibility
+      const constraints = {
+        video: {
+          width: { ideal: 1280, max: 1920 },
+          height: { ideal: 720, max: 1080 },
+          facingMode: { ideal: 'environment' }, // Prefer back camera
+          aspectRatio: { ideal: 16/9 }
+        },
+        audio: false
+      };
+
+      console.log('Requesting camera access...');
+      const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      console.log('Camera access granted, setting up stream...');
       setStream(mediaStream);
       setHasCameraPermission(true);
       setIsCameraActive(true);
+      setCameraError(null);
+      
+      toast({
+        title: "Camera Ready",
+        description: "Camera is now active. Position your ID card and click capture.",
+        variant: "default",
+      });
+
     } catch (err) {
-      console.error("Error accessing camera:", err);
-      if (err instanceof Error && (err.name === "NotFoundError" || err.name === "DevicesNotFoundError")) {
-        toast({
-          title: "Camera Not Found",
-          description: "No camera device was found. Please ensure a camera is connected and enabled.",
-          variant: "destructive",
-        });
-      } else if (err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")) {
-         toast({
-          title: "Camera Access Denied",
-          description: "Camera permission was denied. Please enable it in your browser settings.",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "Camera Error",
-          description: "Could not access camera. Please check permissions or try again.",
-          variant: "destructive",
-        });
+      console.error("Camera access error:", err);
+      let errorMessage = "Could not access camera. ";
+      
+      if (err instanceof Error) {
+        switch (err.name) {
+          case "NotFoundError":
+          case "DevicesNotFoundError":
+            errorMessage += "No camera device found. Please ensure a camera is connected.";
+            break;
+          case "NotAllowedError":
+          case "PermissionDeniedError":
+            errorMessage += "Camera permission denied. Please allow camera access and try again.";
+            break;
+          case "NotReadableError":
+            errorMessage += "Camera is already in use by another application.";
+            break;
+          case "OverconstrainedError":
+            errorMessage += "Camera constraints not supported. Trying with basic settings...";
+            // Try again with basic constraints
+            try {
+              const basicStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              setStream(basicStream);
+              setHasCameraPermission(true);
+              setIsCameraActive(true);
+              setCameraError(null);
+              setIsLoading(false);
+              return;
+            } catch (basicErr) {
+              errorMessage += " Basic camera access also failed.";
+            }
+            break;
+          case "SecurityError":
+            errorMessage += "Camera access blocked due to security restrictions.";
+            break;
+          default:
+            errorMessage += `Error: ${err.message}`;
+        }
       }
+      
+      setCameraError(errorMessage);
       setHasCameraPermission(false);
       setIsCameraActive(false);
       setStream(null);
+      
+      toast({
+        title: "Camera Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
     }
   }, [onImageCapture, toast]);
 
   useEffect(() => {
     if (isCameraActive && stream && videoRef.current) {
+      console.log('Setting video source...');
       videoRef.current.srcObject = stream;
+      
+      // Add event listeners for video
+      const video = videoRef.current;
+      
+      const handleLoadedMetadata = () => {
+        console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
+      };
+      
+      const handleCanPlay = () => {
+        console.log('Video can play');
+      };
+      
+      const handleError = (e: Event) => {
+        console.error('Video error:', e);
+        setCameraError('Failed to display camera feed');
+      };
+      
+      video.addEventListener('loadedmetadata', handleLoadedMetadata);
+      video.addEventListener('canplay', handleCanPlay);
+      video.addEventListener('error', handleError);
+      
+      return () => {
+        video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        video.removeEventListener('canplay', handleCanPlay);
+        video.removeEventListener('error', handleError);
+      };
     }
   }, [isCameraActive, stream]);
 
   const stopCamera = useCallback(() => {
+    console.log('Stopping camera...');
     if (stream) {
-      stream.getTracks().forEach(track => track.stop());
+      stream.getTracks().forEach(track => {
+        track.stop();
+        console.log('Stopped track:', track.kind);
+      });
     }
     if (videoRef.current && videoRef.current.srcObject) {
-        videoRef.current.srcObject = null;
+      videoRef.current.srcObject = null;
     }
     setStream(null);
     setIsCameraActive(false);
+    setCameraError(null);
   }, [stream]);
 
-  const captureImage = () => {
-    if (videoRef.current && canvasRef.current && stream && isCameraActive) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      
-      if (video.videoWidth === 0 || video.videoHeight === 0) {
-        toast({
-          title: "Capture Error",
-          description: "Video stream not ready or no dimensions. Please try again.",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const context = canvas.getContext('2d');
-      if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const base64Image = canvas.toDataURL('image/png');
-        setCapturedImage(base64Image);
-        onImageCapture(base64Image);
-        stopCamera(); 
-      }
-    } else {
+  const captureImage = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !stream || !isCameraActive) {
       toast({
         title: "Capture Error",
-        description: "Camera not active or stream not available.",
+        description: "Camera not ready. Please ensure camera is active.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    // Wait for video to be ready
+    if (video.readyState < 2) {
+      toast({
+        title: "Capture Error",
+        description: "Camera is still loading. Please wait a moment and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      toast({
+        title: "Capture Error",
+        description: "Video stream not ready. Please try again in a moment.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      // Set canvas dimensions to match video
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      const context = canvas.getContext('2d');
+      if (!context) {
+        throw new Error('Could not get canvas context');
+      }
+      
+      // Draw the video frame to canvas
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert to base64
+      const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+      
+      console.log('Image captured, size:', base64Image.length);
+      setCapturedImage(base64Image);
+      onImageCapture(base64Image);
+      stopCamera();
+      
+      toast({
+        title: "Image Captured",
+        description: "ID card image captured successfully!",
+        variant: "default",
+      });
+      
+    } catch (error) {
+      console.error('Capture error:', error);
+      toast({
+        title: "Capture Failed",
+        description: "Failed to capture image. Please try again.",
         variant: "destructive",
       });
     }
-  };
+  }, [isCameraActive, stream, onImageCapture, stopCamera, toast]);
 
   const retakeImage = () => {
+    setCapturedImage(null);
+    onImageCapture(null);
     requestCameraPermissionAndStart();
   };
 
@@ -138,28 +267,41 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
 
   useEffect(() => {
     if (currentImagePreview === null && capturedImage !== null) {
-        setCapturedImage(null);
-        if(isCameraActive) stopCamera();
+      setCapturedImage(null);
+      if (isCameraActive) stopCamera();
     } else if (currentImagePreview !== null && currentImagePreview !== capturedImage) {
-        setCapturedImage(currentImagePreview);
-         if(isCameraActive) stopCamera(); 
+      setCapturedImage(currentImagePreview);
+      if (isCameraActive) stopCamera(); 
     }
   }, [currentImagePreview, capturedImage, isCameraActive, stopCamera]); 
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-3">
-        {!isCameraActive && !capturedImage && (hasCameraPermission !== false) && (
+        {!isCameraActive && !capturedImage && !isLoading && (
           <Button 
             onClick={requestCameraPermissionAndStart} 
             variant="outline" 
             className="flex-1 h-12 hover-lift border-primary/20 hover:border-primary hover:bg-primary/5"
+            disabled={isLoading}
           >
             <Video className="mr-2 h-5 w-5" /> 
             Start Camera
           </Button>
         )}
-        {isCameraActive && (
+        
+        {isLoading && (
+          <Button 
+            variant="outline" 
+            className="flex-1 h-12"
+            disabled
+          >
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary mr-2"></div>
+            Starting Camera...
+          </Button>
+        )}
+        
+        {isCameraActive && !isLoading && (
           <>
             <Button 
               onClick={captureImage} 
@@ -178,6 +320,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
             </Button>
           </>
         )}
+        
         {capturedImage && (
           <>
             <Button 
@@ -201,13 +344,21 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         )}
       </div>
 
-      {hasCameraPermission === false && (
+      {cameraError && (
         <Alert variant="destructive" className="border-destructive/20 bg-destructive/5">
-          <VideoOff className="h-5 w-5" />
-          <AlertTitle className="font-semibold">Camera Access Problem</AlertTitle>
+          <AlertCircle className="h-5 w-5" />
+          <AlertTitle className="font-semibold">Camera Error</AlertTitle>
           <AlertDescription>
-            Could not access the camera. Please ensure it's enabled and permissions are granted in your browser settings.
-            You might need to reload the page after granting permissions.
+            {cameraError}
+            <div className="mt-2 text-sm">
+              <strong>Troubleshooting tips:</strong>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>Make sure you're using HTTPS (camera requires secure connection)</li>
+                <li>Check if another app is using your camera</li>
+                <li>Try refreshing the page and allowing camera permissions</li>
+                <li>Ensure your browser supports camera access</li>
+              </ul>
+            </div>
           </AlertDescription>
         </Alert>
       )}
@@ -217,8 +368,12 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         autoPlay
         playsInline
         muted
-        className={`w-full aspect-video rounded-xl border-2 bg-black shadow-lg ${isCameraActive ? 'block border-primary/20' : 'hidden'}`}
+        className={`w-full aspect-video rounded-xl border-2 bg-black shadow-lg transition-all duration-300 ${
+          isCameraActive ? 'block border-primary/20' : 'hidden'
+        }`}
         aria-label="Camera feed"
+        onLoadedMetadata={() => console.log('Video loaded metadata')}
+        onCanPlay={() => console.log('Video can play')}
       />
       <canvas ref={canvasRef} className="hidden" />
 
@@ -235,7 +390,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
           </div>
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 rounded-xl" />
         </div>
-      ) : !isCameraActive && hasCameraPermission !== false && (
+      ) : !isCameraActive && !isLoading && (
          <div className="aspect-video flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/25 rounded-xl bg-muted/20 text-muted-foreground">
             <div className="text-center space-y-4">
               <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
@@ -243,7 +398,10 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
               </div>
               <div className="space-y-2">
                 <p className="font-medium">Camera feed will appear here</p>
-                {hasCameraPermission === null && <p className="text-sm">Click "Start Camera" to begin capturing</p>}
+                <p className="text-sm">Click "Start Camera" to begin capturing</p>
+                <p className="text-xs text-muted-foreground/70">
+                  Make sure to allow camera permissions when prompted
+                </p>
               </div>
             </div>
         </div>
