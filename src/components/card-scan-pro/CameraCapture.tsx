@@ -1,11 +1,10 @@
-
 'use client';
 
 import type React from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import Image from 'next/image';
-import { Camera, Video, VideoOff, X, RotateCcw } from 'lucide-react';
+import { Camera, Video, VideoOff, X, RotateCcw, Zap } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -72,7 +71,6 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   useEffect(() => {
     if (isCameraActive && stream && videoRef.current) {
       videoRef.current.srcObject = stream;
-      // Removed explicit videoRef.current.play() - relying on autoPlay attribute
     }
   }, [isCameraActive, stream]);
 
@@ -146,43 +144,67 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         setCapturedImage(currentImagePreview);
          if(isCameraActive) stopCamera(); 
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentImagePreview]); 
+  }, [currentImagePreview, capturedImage, isCameraActive, stopCamera]); 
 
   return (
-    <div className="space-y-4">
-      <div className="flex space-x-2">
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3">
         {!isCameraActive && !capturedImage && (hasCameraPermission !== false) && (
-          <Button onClick={requestCameraPermissionAndStart} variant="outline">
-            <Video className="mr-2 h-4 w-4" /> Start Camera
+          <Button 
+            onClick={requestCameraPermissionAndStart} 
+            variant="outline" 
+            className="flex-1 h-12 hover-lift border-primary/20 hover:border-primary hover:bg-primary/5"
+          >
+            <Video className="mr-2 h-5 w-5" /> 
+            Start Camera
           </Button>
         )}
         {isCameraActive && (
           <>
-            <Button onClick={captureImage} variant="default">
-              <Camera className="mr-2 h-4 w-4" /> Capture
+            <Button 
+              onClick={captureImage} 
+              className="flex-1 h-12 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl transition-all duration-300"
+            >
+              <Zap className="mr-2 h-5 w-5" /> 
+              Capture
             </Button>
-            <Button onClick={stopCamera} variant="outline">
-              <VideoOff className="mr-2 h-4 w-4" /> Stop Camera
+            <Button 
+              onClick={stopCamera} 
+              variant="outline" 
+              className="h-12 hover-lift border-destructive/20 hover:border-destructive hover:bg-destructive/5"
+            >
+              <VideoOff className="mr-2 h-5 w-5" /> 
+              Stop
             </Button>
           </>
         )}
         {capturedImage && (
           <>
-            <Button onClick={retakeImage} variant="outline">
-              <RotateCcw className="mr-2 h-4 w-4" /> Retake
+            <Button 
+              onClick={retakeImage} 
+              variant="outline" 
+              className="flex-1 h-12 hover-lift border-primary/20 hover:border-primary hover:bg-primary/5"
+            >
+              <RotateCcw className="mr-2 h-5 w-5" /> 
+              Retake
             </Button>
-            <Button variant="ghost" size="icon" onClick={clearImage} aria-label="Clear image">
-              <X className="h-4 w-4" />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={clearImage} 
+              className="h-12 w-12 hover:bg-destructive/10 hover:text-destructive"
+              aria-label="Clear image"
+            >
+              <X className="h-5 w-5" />
             </Button>
           </>
         )}
       </div>
 
       {hasCameraPermission === false && (
-        <Alert variant="destructive">
-          <VideoOff className="h-4 w-4" />
-          <AlertTitle>Camera Access Problem</AlertTitle>
+        <Alert variant="destructive" className="border-destructive/20 bg-destructive/5">
+          <VideoOff className="h-5 w-5" />
+          <AlertTitle className="font-semibold">Camera Access Problem</AlertTitle>
           <AlertDescription>
             Could not access the camera. Please ensure it's enabled and permissions are granted in your browser settings.
             You might need to reload the page after granting permissions.
@@ -195,26 +217,35 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         autoPlay
         playsInline
         muted
-        className={`w-full aspect-video rounded-md border bg-black shadow-sm ${isCameraActive ? 'block' : 'hidden'}`}
+        className={`w-full aspect-video rounded-xl border-2 bg-black shadow-lg ${isCameraActive ? 'block border-primary/20' : 'hidden'}`}
         aria-label="Camera feed"
       />
       <canvas ref={canvasRef} className="hidden" />
 
       {capturedImage ? (
-        <div className="mt-4 p-2 border rounded-md shadow-sm bg-white aspect-video relative max-w-full overflow-hidden">
-          <Image 
-            src={capturedImage} 
-            alt="Captured ID card" 
-            layout="fill"
-            objectFit="contain"
-            data-ai-hint="ID card document"
-          />
+        <div className="relative group">
+          <div className="aspect-video relative overflow-hidden rounded-xl border-2 border-primary/20 bg-white shadow-lg">
+            <Image 
+              src={capturedImage} 
+              alt="Captured ID card" 
+              fill
+              className="object-contain"
+              data-ai-hint="ID card document"
+            />
+          </div>
+          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300 rounded-xl" />
         </div>
       ) : !isCameraActive && hasCameraPermission !== false && (
-         <div className="mt-4 p-8 border-2 border-dashed border-border rounded-md shadow-sm bg-muted/50 flex flex-col items-center justify-center aspect-video text-muted-foreground" data-ai-hint="camera placeholder">
-            <Camera className="h-12 w-12 mb-2" />
-            <p>Camera feed or captured image will appear here</p>
-            {hasCameraPermission === null && <p className="text-sm mt-1">Click "Start Camera" to begin.</p>}
+         <div className="aspect-video flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/25 rounded-xl bg-muted/20 text-muted-foreground">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
+                <Camera className="h-8 w-8" />
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium">Camera feed will appear here</p>
+                {hasCameraPermission === null && <p className="text-sm">Click "Start Camera" to begin capturing</p>}
+              </div>
+            </div>
         </div>
       )}
     </div>

@@ -3,28 +3,28 @@
 @tailwind utilities;
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', sans-serif;
 }
 
 @layer base {
   :root {
-    --background: 207 27% 95%; /* #F0F4F7 */
-    --foreground: 222 21% 10%; /* Dark Gray for text */
+    --background: 207 27% 97%; /* Lighter background #F8FAFC */
+    --foreground: 222 21% 8%; /* Darker text for better contrast */
 
     --card: 0 0% 100%; /* White */
-    --card-foreground: 222 21% 10%;
+    --card-foreground: 222 21% 8%;
 
     --popover: 0 0% 100%; /* White */
-    --popover-foreground: 222 21% 10%;
+    --popover-foreground: 222 21% 8%;
 
     --primary: 217 91% 60%; /* #4285F4 */
     --primary-foreground: 0 0% 98%; /* Almost White */
 
-    --secondary: 210 30% 90%; /* Light Gray for secondary elements */
-    --secondary-foreground: 222 21% 10%;
+    --secondary: 210 30% 94%; /* Lighter secondary */
+    --secondary-foreground: 222 21% 8%;
 
-    --muted: 210 30% 85%; /* Muted Gray */
-    --muted-foreground: 210 20% 45%; /* Darker Muted Gray */
+    --muted: 210 30% 92%; /* Lighter muted */
+    --muted-foreground: 210 20% 40%; /* Better contrast */
 
     --accent: 135 34% 57%; /* #67B97B */
     --accent-foreground: 0 0% 98%; /* Almost White */
@@ -32,7 +32,7 @@ body {
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 210 20% 80%; /* Adjusted border color */
+    --border: 210 20% 88%; /* Softer borders */
     --input: 0 0% 100%; /* White input background */
     --ring: 217 91% 60%; /* Primary color for rings */
     
@@ -41,9 +41,9 @@ body {
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --radius: 0.75rem; /* Increased border radius */
 
-    /* Sidebar variables (can keep as is or adjust if sidebar is used extensively) */
+    /* Sidebar variables */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -55,25 +55,24 @@ body {
   }
 
   .dark {
-    /* Keeping dark mode defaults for now, can be themed later if needed */
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 217 91% 60%; /* #4285F4 */
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 135 34% 57%; /* #67B97B */
-    --accent-foreground: 0 0% 98%;
+    --background: 222 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 84% 4.9%;
+    --secondary: 217 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 135 34% 57%;
+    --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 32.6% 17.5%;
+    --input: 217 32.6% 17.5%;
     --ring: 217 91% 60%;
     --chart-1: 220 70% 50%;
     --chart-2: 160 60% 45%;
@@ -94,12 +93,56 @@ body {
 
 @layer base {
   * {
-    @apply border;
+    @apply border-border;
   }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
-    @apply font-sans;
+    @apply bg-background text-foreground font-sans antialiased;
   }
 }
 
+/* Custom animations and effects */
+@layer utilities {
+  .glass-effect {
+    @apply bg-white/80 backdrop-blur-sm border border-white/20;
+  }
+  
+  .gradient-bg {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  }
+  
+  .hover-lift {
+    @apply transition-all duration-300 ease-out;
+  }
+  
+  .hover-lift:hover {
+    @apply -translate-y-1 shadow-lg;
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.5s ease-out;
+  }
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .pulse-glow {
+    animation: pulseGlow 2s infinite;
+  }
+  
+  @keyframes pulseGlow {
+    0%, 100% {
+      box-shadow: 0 0 5px hsl(var(--primary) / 0.3);
+    }
+    50% {
+      box-shadow: 0 0 20px hsl(var(--primary) / 0.6);
+    }
+  }
+}

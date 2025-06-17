@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { User, CalendarDays, FileText, CheckCircle, AlertTriangle, Loader2, Info } from 'lucide-react';
+import { User, CalendarDays, FileText, CheckCircle, AlertTriangle, Loader2, Info, Sparkles } from 'lucide-react';
 import type React from 'react';
 import { useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,86 +53,119 @@ export function DataDisplayForm({ initialData, onValidate, isValidating, validat
   ];
 
   return (
-    <Card className="shadow-lg">
-      <CardHeader>
-        <CardTitle className="flex items-center text-xl font-headline">
-          <Info className="mr-2 h-6 w-6 text-primary" /> Extracted Information
+    <Card className="shadow-xl border-0 bg-white/80 backdrop-blur-sm hover-lift">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center text-2xl font-bold">
+          <div className="p-2 bg-accent/10 rounded-lg mr-3">
+            <Info className="h-6 w-6 text-accent" />
+          </div>
+          Extracted Information
         </CardTitle>
+        <p className="text-muted-foreground">Review and edit the extracted data before validation</p>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-6">
-          {formFields.map((field) => (
-            <div key={field.name} className="space-y-1">
-              <Label htmlFor={field.name} className="flex items-center text-sm font-medium">
-                <field.icon className="mr-2 h-4 w-4 text-muted-foreground" />
-                {field.label}
-              </Label>
-              <Controller
-                name={field.name}
-                control={control}
-                render={({ field: controllerField }) => (
-                  field.type === 'select' && field.options ? (
-                     <Select onValueChange={controllerField.onChange} defaultValue={controllerField.value} value={controllerField.value}>
-                        <SelectTrigger id={field.name} aria-label={field.label}>
-                            <SelectValue placeholder={field.placeholder} />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {field.options.map(option => (
-                                <SelectItem key={option} value={option}>{option}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                  ) : (
-                    <Input
-                      id={field.name}
-                      type={field.type || 'text'}
-                      placeholder={field.placeholder}
-                      {...controllerField}
-                      className={errors[field.name] ? 'border-destructive ring-destructive' : ''}
-                      aria-invalid={errors[field.name] ? "true" : "false"}
-                    />
-                  )
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {formFields.map((field) => (
+              <div key={field.name} className="space-y-3">
+                <Label htmlFor={field.name} className="flex items-center text-sm font-semibold">
+                  <field.icon className="mr-2 h-4 w-4 text-primary" />
+                  {field.label}
+                </Label>
+                <Controller
+                  name={field.name}
+                  control={control}
+                  render={({ field: controllerField }) => (
+                    field.type === 'select' && field.options ? (
+                       <Select onValueChange={controllerField.onChange} defaultValue={controllerField.value} value={controllerField.value}>
+                          <SelectTrigger 
+                            id={field.name} 
+                            aria-label={field.label}
+                            className={`h-12 ${errors[field.name] ? 'border-destructive ring-destructive' : 'border-muted-foreground/20 focus:border-primary'}`}
+                          >
+                              <SelectValue placeholder={field.placeholder} />
+                          </SelectTrigger>
+                          <SelectContent>
+                              {field.options.map(option => (
+                                  <SelectItem key={option} value={option}>{option}</SelectItem>
+                              ))}
+                          </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        id={field.name}
+                        type={field.type || 'text'}
+                        placeholder={field.placeholder}
+                        {...controllerField}
+                        className={`h-12 ${errors[field.name] ? 'border-destructive ring-destructive' : 'border-muted-foreground/20 focus:border-primary'}`}
+                        aria-invalid={errors[field.name] ? "true" : "false"}
+                      />
+                    )
+                  )}
+                />
+                {errors[field.name] && (
+                  <p className="text-xs text-destructive flex items-center gap-1">
+                    <AlertTriangle className="h-3 w-3" />
+                    {errors[field.name]?.message}
+                  </p>
                 )}
-              />
-              {errors[field.name] && <p className="text-xs text-destructive">{errors[field.name]?.message}</p>}
-            </div>
-          ))}
+              </div>
+            ))}
+          </div>
+          
           {rawOcrText && (
-             <div className="space-y-1">
-                <Label htmlFor="rawOcrText" className="flex items-center text-sm font-medium">
-                    <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+             <div className="space-y-3">
+                <Label htmlFor="rawOcrText" className="flex items-center text-sm font-semibold">
+                    <FileText className="mr-2 h-4 w-4 text-primary" />
                     Raw OCR Text (Read-only)
                 </Label>
                 <textarea
                     id="rawOcrText"
                     readOnly
                     value={rawOcrText}
-                    className="w-full h-24 p-2 border rounded-md bg-muted/50 text-sm"
+                    className="w-full h-32 p-4 border border-muted-foreground/20 rounded-lg bg-muted/30 text-sm font-mono resize-none focus:outline-none"
                     aria-label="Raw OCR Text"
                 />
              </div>
           )}
         </CardContent>
-        <CardFooter className="flex flex-col items-stretch gap-4">
+        <CardFooter className="flex flex-col items-stretch gap-6 pt-6">
            {validationResult && validationResult.message && (
-            <Alert variant={validationResult.type === 'error' ? 'destructive' : 'default'} className={
-              validationResult.type === 'success' ? 'border-green-500 bg-green-50 text-green-700' : 
-              validationResult.type === 'info' ? 'border-blue-500 bg-blue-50 text-blue-700' : ''
-            }>
-              {validationResult.type === 'success' && <CheckCircle className="h-4 w-4" />}
-              {validationResult.type === 'error' && <AlertTriangle className="h-4 w-4" />}
-              {validationResult.type === 'info' && <Info className="h-4 w-4" />}
-              <AlertTitle>{validationResult.type === 'success' ? 'Validation Successful' : validationResult.type === 'error' ? 'Validation Issue' : 'Validation Info'}</AlertTitle>
-              <AlertDescription>
+            <Alert 
+              variant={validationResult.type === 'error' ? 'destructive' : 'default'} 
+              className={`border-2 ${
+                validationResult.type === 'success' ? 'border-green-200 bg-green-50 text-green-800' : 
+                validationResult.type === 'info' ? 'border-blue-200 bg-blue-50 text-blue-800' : ''
+              }`}
+            >
+              {validationResult.type === 'success' && <CheckCircle className="h-5 w-5" />}
+              {validationResult.type === 'error' && <AlertTriangle className="h-5 w-5" />}
+              {validationResult.type === 'info' && <Info className="h-5 w-5" />}
+              <AlertTitle className="font-semibold">
+                {validationResult.type === 'success' ? 'Validation Successful' : 
+                 validationResult.type === 'error' ? 'Validation Issue' : 'Validation Info'}
+              </AlertTitle>
+              <AlertDescription className="mt-2">
                 {validationResult.message}
               </AlertDescription>
             </Alert>
           )}
-          <Button type="submit" disabled={isValidating || !initialData} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
+          <Button 
+            type="submit" 
+            disabled={isValidating || !initialData} 
+            className="w-full h-12 text-lg font-semibold bg-gradient-to-r from-accent to-accent/90 hover:from-accent/90 hover:to-accent shadow-lg hover:shadow-xl transition-all duration-300"
+          >
             {isValidating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
-            {isValidating ? 'Validating...' : 'Validate & Confirm Data with AI'}
+              <>
+                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                Validating with AI...
+              </>
+            ) : (
+              <>
+                <Sparkles className="mr-3 h-5 w-5" />
+                Validate & Confirm Data with AI
+              </>
+            )}
           </Button>
         </CardFooter>
       </form>
