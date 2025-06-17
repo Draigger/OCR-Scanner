@@ -18,6 +18,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const [capturedImage, setCapturedImage] = useState<string | null>(currentImagePreview);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +28,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
 
   const requestCameraPermissionAndStart = useCallback(async () => {
     setIsLoading(true);
+    setIsStartingCamera(true);
     setCameraError(null);
     setVideoReady(false);
     
@@ -36,6 +38,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       setCameraError(errorMsg);
       setHasCameraPermission(false);
       setIsLoading(false);
+      setIsStartingCamera(false);
       toast({
         title: "Camera Not Supported",
         description: errorMsg,
@@ -107,6 +110,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
               setIsCameraActive(true);
               setCameraError(null);
               setIsLoading(false);
+              setIsStartingCamera(false);
               return;
             } catch (basicErr) {
               errorMessage += " Basic camera access also failed.";
@@ -132,6 +136,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       });
     } finally {
       setIsLoading(false);
+      setIsStartingCamera(false);
     }
   }, [onImageCapture, toast]);
 
@@ -213,6 +218,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     }
     setStream(null);
     setIsCameraActive(false);
+    setIsStartingCamera(false);
     setVideoReady(false);
     setCameraError(null);
   }, [stream]);
@@ -307,16 +313,16 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     };
   }, [stopCamera]);
 
-  // Sync with external image changes
+  // Sync with external image changes - prevent stopping camera during initialization
   useEffect(() => {
     if (currentImagePreview === null && capturedImage !== null) {
       setCapturedImage(null);
-      if (isCameraActive) stopCamera();
+      if (isCameraActive && !isStartingCamera) stopCamera();
     } else if (currentImagePreview !== null && currentImagePreview !== capturedImage) {
       setCapturedImage(currentImagePreview);
-      if (isCameraActive) stopCamera(); 
+      if (isCameraActive && !isStartingCamera) stopCamera(); 
     }
-  }, [currentImagePreview, capturedImage, isCameraActive, stopCamera]); 
+  }, [currentImagePreview, capturedImage, isCameraActive, isStartingCamera, stopCamera]); 
 
   return (
     <div className="space-y-6">
