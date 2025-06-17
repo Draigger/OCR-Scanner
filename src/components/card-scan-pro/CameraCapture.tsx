@@ -185,11 +185,17 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       });
       
       return () => {
+        // Cleanup function: properly clean up video source and event listeners
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('canplay', handleCanPlay);
         video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('error', handleError);
         video.removeEventListener('loadstart', handleLoadStart);
+        
+        // Properly clean up video source to prevent play() interruption
+        if (video.srcObject) {
+          video.srcObject = null;
+        }
       };
     }
   }, [isCameraActive, stream]);
