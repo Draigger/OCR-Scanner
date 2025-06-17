@@ -18,6 +18,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const [capturedImage, setCapturedImage] = useState<string | null>(currentImagePreview);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
@@ -27,6 +28,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const requestCameraPermissionAndStart = useCallback(async () => {
     setIsLoading(true);
     setCameraError(null);
+    setVideoReady(false);
     
     // Check if getUserMedia is supported
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -42,36 +44,39 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       return;
     }
 
+    // Clear any existing captured image
     setCapturedImage(null);
     onImageCapture(null);
 
     try {
-      // Try different camera constraints for better compatibility
+      // Start with basic constraints for better compatibility
       const constraints = {
         video: {
-          width: { ideal: 1280, max: 1920 },
-          height: { ideal: 720, max: 1080 },
-          facingMode: { ideal: 'environment' }, // Prefer back camera
-          aspectRatio: { ideal: 16/9 }
+          width: { ideal: 1280, min: 640, max: 1920 },
+          height: { ideal: 720, min: 480, max: 1080 },
+          facingMode: 'environment' // Prefer back camera
         },
         audio: false
       };
 
-      console.log('Requesting camera access...');
+      console.log('Requesting camera access with constraints:', constraints);
       const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
       
-      console.log('Camera access granted, setting up stream...');
+      console.log('Camera access granted, stream tracks:', mediaStream.getTracks().length);
+      
+      // Check if stream has video tracks
+      const videoTracks = mediaStream.getVideoTracks();
+      if (videoTracks.length === 0) {
+        throw new Error('No video tracks found in stream');
+      }
+      
+      console.log('Video track settings:', videoTracks[0].getSettings());
+      
       setStream(mediaStream);
       setHasCameraPermission(true);
       setIsCameraActive(true);
       setCameraError(null);
       
-      toast({
-        title: "Camera Ready",
-        description: "Camera is now active. Position your ID card and click capture.",
-        variant: "default",
-      });
-
     } catch (err) {
       console.error("Camera access error:", err);
       let errorMessage = "Could not access camera. ";
@@ -91,9 +96,12 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
             break;
           case "OverconstrainedError":
             errorMessage += "Camera constraints not supported. Trying with basic settings...";
-            // Try again with basic constraints
+            // Try again with very basic constraints
             try {
-              const basicStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              const basicStream = await navigator.mediaDevices.getUserMedia({ 
+                video: true, 
+                audio: false 
+              });
               setStream(basicStream);
               setHasCameraPermission(true);
               setIsCameraActive(true);
@@ -127,35 +135,61 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     }
   }, [onImageCapture, toast]);
 
+  // Handle video element setup
   useEffect(() => {
     if (isCameraActive && stream && videoRef.current) {
-      console.log('Setting video source...');
-      videoRef.current.srcObject = stream;
-      
-      // Add event listeners for video
       const video = videoRef.current;
+      console.log('Setting up video element...');
+      
+      // Set the stream
+      video.srcObject = stream;
       
       const handleLoadedMetadata = () => {
         console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
+        setVideoReady(true);
       };
       
       const handleCanPlay = () => {
         console.log('Video can play');
+        // Ensure video is playing
+        video.play().catch(err => {
+          console.error('Error playing video:', err);
+        });
+      };
+      
+      const handlePlaying = () => {
+        console.log('Video is playing');
+        setVideoReady(true);
       };
       
       const handleError = (e: Event) => {
         console.error('Video error:', e);
         setCameraError('Failed to display camera feed');
+        setVideoReady(false);
       };
       
+      const handleLoadStart = () => {
+        console.log('Video load started');
+      };
+      
+      // Add all event listeners
       video.addEventListener('loadedmetadata', handleLoadedMetadata);
       video.addEventListener('canplay', handleCanPlay);
+      video.addEventListener('playing', handlePlaying);
       video.addEventListener('error', handleError);
+      video.addEventListener('loadstart', handleLoadStart);
+      
+      // Force play the video
+      video.play().catch(err => {
+        console.error('Initial play failed:', err);
+      });
       
       return () => {
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('canplay', handleCanPlay);
+        video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('error', handleError);
+        video.removeEventListener('loadstart', handleLoadStart);
       };
     }
   }, [isCameraActive, stream]);
@@ -165,22 +199,23 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     if (stream) {
       stream.getTracks().forEach(track => {
         track.stop();
-        console.log('Stopped track:', track.kind);
+        console.log('Stopped track:', track.kind, track.label);
       });
     }
-    if (videoRef.current && videoRef.current.srcObject) {
+    if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setStream(null);
     setIsCameraActive(false);
+    setVideoReady(false);
     setCameraError(null);
   }, [stream]);
 
   const captureImage = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current || !stream || !isCameraActive) {
+    if (!videoRef.current || !canvasRef.current || !stream || !isCameraActive || !videoReady) {
       toast({
         title: "Capture Error",
-        description: "Camera not ready. Please ensure camera is active.",
+        description: "Camera not ready. Please wait for the video feed to load.",
         variant: "destructive",
       });
       return;
@@ -189,7 +224,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Wait for video to be ready
+    // Double-check video is ready
     if (video.readyState < 2) {
       toast({
         title: "Capture Error",
@@ -221,10 +256,10 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       // Draw the video frame to canvas
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       
-      // Convert to base64
-      const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+      // Convert to base64 with high quality
+      const base64Image = canvas.toDataURL('image/jpeg', 0.95);
       
-      console.log('Image captured, size:', base64Image.length);
+      console.log('Image captured successfully, size:', base64Image.length);
       setCapturedImage(base64Image);
       onImageCapture(base64Image);
       stopCamera();
@@ -243,7 +278,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         variant: "destructive",
       });
     }
-  }, [isCameraActive, stream, onImageCapture, stopCamera, toast]);
+  }, [isCameraActive, stream, videoReady, onImageCapture, stopCamera, toast]);
 
   const retakeImage = () => {
     setCapturedImage(null);
@@ -259,12 +294,14 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     }
   };
   
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       stopCamera();
     };
   }, [stopCamera]);
 
+  // Sync with external image changes
   useEffect(() => {
     if (currentImagePreview === null && capturedImage !== null) {
       setCapturedImage(null);
@@ -305,10 +342,15 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
           <>
             <Button 
               onClick={captureImage} 
-              className="flex-1 h-12 bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl transition-all duration-300"
+              disabled={!videoReady}
+              className={`flex-1 h-12 transition-all duration-300 ${
+                videoReady 
+                  ? 'bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary shadow-lg hover:shadow-xl' 
+                  : 'bg-muted text-muted-foreground cursor-not-allowed'
+              }`}
             >
               <Zap className="mr-2 h-5 w-5" /> 
-              Capture
+              {videoReady ? 'Capture' : 'Loading...'}
             </Button>
             <Button 
               onClick={stopCamera} 
@@ -350,33 +392,60 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
           <AlertTitle className="font-semibold">Camera Error</AlertTitle>
           <AlertDescription>
             {cameraError}
-            <div className="mt-2 text-sm">
+            <div className="mt-3 text-sm">
               <strong>Troubleshooting tips:</strong>
-              <ul className="list-disc list-inside mt-1 space-y-1">
+              <ul className="list-disc list-inside mt-2 space-y-1">
                 <li>Make sure you're using HTTPS (camera requires secure connection)</li>
                 <li>Check if another app is using your camera</li>
                 <li>Try refreshing the page and allowing camera permissions</li>
                 <li>Ensure your browser supports camera access</li>
+                <li>Try using a different browser (Chrome, Firefox, Safari, Edge)</li>
               </ul>
             </div>
           </AlertDescription>
         </Alert>
       )}
 
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className={`w-full aspect-video rounded-xl border-2 bg-black shadow-lg transition-all duration-300 ${
-          isCameraActive ? 'block border-primary/20' : 'hidden'
-        }`}
-        aria-label="Camera feed"
-        onLoadedMetadata={() => console.log('Video loaded metadata')}
-        onCanPlay={() => console.log('Video can play')}
-      />
+      {/* Video Feed */}
+      {isCameraActive && (
+        <div className="relative">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full aspect-video rounded-xl border-2 border-primary/20 bg-black shadow-lg"
+            style={{ 
+              display: isCameraActive ? 'block' : 'none',
+              objectFit: 'cover'
+            }}
+            aria-label="Camera feed"
+          />
+          
+          {/* Loading overlay */}
+          {!videoReady && isCameraActive && (
+            <div className="absolute inset-0 bg-black/50 rounded-xl flex items-center justify-center">
+              <div className="text-white text-center space-y-3">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+                <p className="text-sm">Loading camera feed...</p>
+              </div>
+            </div>
+          )}
+          
+          {/* Capture guide overlay */}
+          {videoReady && isCameraActive && (
+            <div className="absolute inset-4 border-2 border-white/50 rounded-lg pointer-events-none">
+              <div className="absolute -top-6 left-0 text-white text-sm bg-black/50 px-2 py-1 rounded">
+                Position ID card within this frame
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      
       <canvas ref={canvasRef} className="hidden" />
 
+      {/* Captured Image Display */}
       {capturedImage ? (
         <div className="relative group">
           <div className="aspect-video relative overflow-hidden rounded-xl border-2 border-primary/20 bg-white shadow-lg">
