@@ -3,7 +3,6 @@
 import type React from 'react';
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import Image from 'next/image';
 import { Camera, X, RotateCcw, Check, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,6 +19,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const [videoReady, setVideoReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [showReview, setShowReview] = useState(false);
+  const [reviewImage, setReviewImage] = useState<string | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -49,6 +49,8 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
     setIsLoading(true);
     setCameraError(null);
     setVideoReady(false);
+    setShowReview(false);
+    setReviewImage(null);
     
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       const errorMsg = "Camera access is not supported in this browser.";
@@ -75,34 +77,30 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         video.srcObject = mediaStream;
         
         // Wait for video to be ready
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Video loading timeout'));
-          }, 10000);
-          
-          const handleLoadedData = () => {
-            if (video.videoWidth > 0 && video.videoHeight > 0) {
-              clearTimeout(timeout);
-              video.removeEventListener('loadeddata', handleLoadedData);
-              video.removeEventListener('error', handleError);
-              resolve();
-            }
-          };
-          
-          const handleError = () => {
-            clearTimeout(timeout);
-            video.removeEventListener('loadeddata', handleLoadedData);
-            video.removeEventListener('error', handleError);
-            reject(new Error('Video loading failed'));
-          };
-          
-          video.addEventListener('loadeddata', handleLoadedData);
-          video.addEventListener('error', handleError);
-        });
+        const handleLoadedMetadata = () => {
+          video.play().then(() => {
+            setVideoReady(true);
+            setIsLoading(false);
+          }).catch((error) => {
+            console.error('Video play failed:', error);
+            setCameraError('Failed to start video playback');
+            setIsLoading(false);
+          });
+        };
         
-        await videoRef.current.play();
-        setVideoReady(true);
-        setIsLoading(false);
+        const handleError = () => {
+          setCameraError('Video loading failed');
+          setIsLoading(false);
+        };
+        
+        video.addEventListener('loadedmetadata', handleLoadedMetadata);
+        video.addEventListener('error', handleError);
+        
+        // Cleanup event listeners
+        return () => {
+          video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          video.removeEventListener('error', handleError);
+        };
       }
       
     } catch (err) {
@@ -135,6 +133,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const openCamera = useCallback(() => {
     setIsCameraOpen(true);
     setShowReview(false);
+    setReviewImage(null);
     setCapturedImage(null);
     startCamera();
   }, [startCamera]);
@@ -143,6 +142,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
   const closeCamera = useCallback(() => {
     setIsCameraOpen(false);
     setShowReview(false);
+    setReviewImage(null);
     cleanupCamera();
   }, [cleanupCamera]);
 
@@ -176,7 +176,8 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
       // Convert to JPEG with 90% quality
       const base64Image = canvas.toDataURL('image/jpeg', 0.9);
       
-      setCapturedImage(base64Image);
+      // Set the review image and show review stage
+      setReviewImage(base64Image);
       setShowReview(true);
       
       // Stop camera during review to save resources
@@ -194,21 +195,22 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
 
   // Use captured photo
   const usePhoto = useCallback(() => {
-    if (capturedImage) {
-      onImageCapture(capturedImage);
+    if (reviewImage) {
+      setCapturedImage(reviewImage);
+      onImageCapture(reviewImage);
       closeCamera();
       toast({
         title: "Photo Selected",
-        description: "ID card image captured successfully!",
+        description: "ID card image captured successfully! Processing...",
         variant: "default",
       });
     }
-  }, [capturedImage, onImageCapture, closeCamera, toast]);
+  }, [reviewImage, onImageCapture, closeCamera, toast]);
 
   // Retake photo
   const retakePhoto = useCallback(() => {
     setShowReview(false);
-    setCapturedImage(null);
+    setReviewImage(null);
     startCamera();
   }, [startCamera]);
 
@@ -295,11 +297,10 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
         {capturedImage ? (
           <div className="relative group">
             <div className="aspect-video relative overflow-hidden rounded-xl border-2 border-primary/20 bg-white shadow-lg">
-              <Image 
+              <img 
                 src={capturedImage} 
                 alt="Captured ID card" 
-                fill
-                className="object-contain"
+                className="w-full h-full object-contain"
                 data-ai-hint="ID card document"
               />
             </div>
@@ -353,7 +354,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
                 />
 
                 {/* Loading State */}
-                {(isLoading || !videoReady) && (
+                {(isLoading || !videoReady) && !cameraError && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black">
                     <div className="text-white text-center space-y-4">
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
@@ -364,8 +365,28 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
                   </div>
                 )}
 
+                {/* Camera Error State */}
+                {cameraError && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black">
+                    <div className="text-white text-center space-y-4 max-w-md px-4">
+                      <AlertCircle className="h-12 w-12 mx-auto text-red-400" />
+                      <div>
+                        <h3 className="text-lg font-semibold mb-2">Camera Error</h3>
+                        <p className="text-sm">{cameraError}</p>
+                      </div>
+                      <Button
+                        onClick={retakePhoto}
+                        variant="outline"
+                        className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+                      >
+                        Try Again
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {/* ID Card Frame Overlay */}
-                {videoReady && (
+                {videoReady && !cameraError && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="relative">
                       {/* Main frame */}
@@ -391,7 +412,7 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
                 )}
 
                 {/* Capture Button */}
-                {videoReady && (
+                {videoReady && !cameraError && (
                   <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2">
                     <Button
                       onClick={capturePhoto}
@@ -408,12 +429,12 @@ export function CameraCapture({ onImageCapture, currentImagePreview }: CameraCap
               <div className="w-full h-full flex flex-col">
                 {/* Preview Image */}
                 <div className="flex-1 flex items-center justify-center p-4">
-                  {capturedImage && (
-                    <div className="max-w-2xl max-h-full">
+                  {reviewImage && (
+                    <div className="max-w-4xl max-h-full w-full h-full flex items-center justify-center">
                       <img
-                        src={capturedImage}
+                        src={reviewImage}
                         alt="Captured ID card"
-                        className="w-full h-full object-contain rounded-lg"
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
                       />
                     </div>
                   )}
